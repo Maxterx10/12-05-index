@@ -62,5 +62,23 @@ EXPLAIN ANALYZE выглядит в этом случае следующим о�
                                 -> Single-row index lookup on i using PRIMARY (inventory_id=r.inventory_id)  (cost=0.25 rows=1) (actual time=602e-6..616e-6 rows=1 loops=634)
                             -> Single-row index lookup on f using PRIMARY (film_id=i.film_id)  (cost=0.25 rows=1) (actual time=639e-6..653e-6 rows=1 loops=634)
 ```
-Время выполнения запроса сократилось на 3 порядка даже без введения новых индексов. Поэтому необходимости в них нет.
-
+Время выполнения запроса сократилось на 3 порядка даже без введения новых индексов. Добавим индекс по payment_date и перепишем условие where:
+```
+-> Limit: 200 row(s)  (cost=0..0 rows=0) (actual time=4.75..4.77 rows=200 loops=1)
+    -> Table scan on <temporary>  (cost=2.5..2.5 rows=0) (actual time=4.75..4.77 rows=200 loops=1)
+        -> Temporary table with deduplication  (cost=0..0 rows=0) (actual time=4.75..4.75 rows=599 loops=1)
+            -> Window aggregate with buffering: sum(payment.amount) OVER (PARTITION BY c.customer_id,f.title )   (actual time=3.89..4.64 rows=634 loops=1)
+                -> Sort: c.customer_id, f.title  (actual time=3.88..3.92 rows=634 loops=1)
+                    -> Stream results  (cost=1618 rows=634) (actual time=0.0328..3.73 rows=634 loops=1)
+                        -> Nested loop inner join  (cost=1618 rows=634) (actual time=0.0294..3.54 rows=634 loops=1)
+                            -> Nested loop inner join  (cost=1396 rows=634) (actual time=0.0269..3.05 rows=634 loops=1)
+                                -> Nested loop inner join  (cost=1175 rows=634) (actual time=0.0251..2.6 rows=634 loops=1)
+                                    -> Nested loop inner join  (cost=953 rows=634) (actual time=0.0225..2.06 rows=634 loops=1)
+                                        -> Filter: (p.rental_id is not null)  (cost=286 rows=634) (actual time=0.0169..1.52 rows=634 loops=1)
+                                            -> Index range scan on p using idx_payment_date over ('2005-07-30 00:00:00' <= payment_date < '2005-07-31 00:00:00'), with index condition: ((p.payment_date >= TIMESTAMP'2005-07-30 00:00:00') and (p.payment_date < <cache>(('2005-07-30' + interval 1 day))))  (cost=286 rows=634) (actual time=0.0163..1.49 rows=634 loops=1)
+                                        -> Single-row index lookup on r using PRIMARY (rental_id=p.rental_id)  (cost=0.952 rows=1) (actual time=739e-6..754e-6 rows=1 loops=634)
+                                    -> Single-row index lookup on c using PRIMARY (customer_id=r.customer_id)  (cost=0.25 rows=1) (actual time=750e-6..764e-6 rows=1 loops=634)
+                                -> Single-row index lookup on i using PRIMARY (inventory_id=r.inventory_id)  (cost=0.25 rows=1) (actual time=602e-6..616e-6 rows=1 loops=634)
+                            -> Single-row index lookup on f using PRIMARY (film_id=i.film_id)  (cost=0.25 rows=1) (actual time=666e-6..680e-6 rows=1 loops=634)
+```
+Видно, что добавление индекса сократило время выполнения запроса еще на 25-30%.
